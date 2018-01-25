@@ -46,7 +46,7 @@ func IsShortReadTagValueError(err error) bool {
 	return false
 }
 
-var flashDescriptions = map[int]string {
+var flashDescriptions = map[int]string{
 	0x0:  "No Flash",
 	0x1:  "Fired",
 	0x5:  "Fired, Return not detected",
@@ -230,9 +230,9 @@ func loadSubDir(x *Exif, ptr FieldName, fieldMap map[uint16]FieldName) error {
 
 // Exif provides access to decoded EXIF metadata fields and values.
 type Exif struct {
-	Tiff    *tiff.Tiff
-	main    map[FieldName]*tiff.Tag
-	Raw     []byte
+	Tiff *tiff.Tiff
+	main map[FieldName]*tiff.Tag
+	Raw  []byte
 	// Contents of the JPEG COM segment (Comment).
 	Comment string
 }
@@ -251,23 +251,28 @@ func Decode(r io.Reader) (*Exif, error) {
 	// If we're parsing a JPEG image, we need to strip away the JPEG APP1
 	// marker and also the EXIF header.
 
-	header := make([]byte, 4)
-	n, err := io.ReadFull(r, header)
+	header := make([]byte, 16)
+	_, err := io.ReadFull(r, header)
 	if err != nil {
 		return nil, err
 	}
-	if n < len(header) {
-		return nil, errors.New("exif: short read on header")
-	}
 
 	var isTiff bool
-	switch string(header) {
-	case "II*\x00":
+	var isHEIC bool
+	switch {
+	case bytes.HasPrefix(header, []byte("II*\x00")),
+		bytes.HasPrefix(header, []byte("MM\x00*")):
 		// TIFF - Little endian (Intel)
-		isTiff = true
-	case "MM\x00*":
 		// TIFF - Big endian (Motorola)
 		isTiff = true
+	case bytes.HasPrefix(header[4:], []byte("ftyp")):
+		prefix := header[8:]
+		isHEIC = bytes.HasPrefix(prefix, []byte("mif1")) ||
+			bytes.HasPrefix(prefix, []byte("msf1")) ||
+			bytes.HasPrefix(prefix, []byte("heic")) ||
+			bytes.HasPrefix(prefix, []byte("heix")) ||
+			bytes.HasPrefix(prefix, []byte("hevc")) ||
+			bytes.HasPrefix(prefix, []byte("hevx"))
 	default:
 		// Not TIFF, assume JPEG
 	}
@@ -288,6 +293,19 @@ func Decode(r io.Reader) (*Exif, error) {
 		tr := io.TeeReader(r, b)
 		tif, err = tiff.Decode(tr)
 		er = bytes.NewReader(b.Bytes())
+	} else if isHEIC {
+		var hr io.Reader
+		var hbuf []byte
+		hr, err = newHEICReader(r)
+		if err != nil {
+			return nil, err
+		}
+		hbuf, err = ioutil.ReadAll(hr)
+		if err != nil {
+			return nil, err
+		}
+		er = bytes.NewReader(hbuf)
+		tif, err = tiff.Decode(er)
 	} else {
 		// Locate the JPEG APP1 header.
 		var sec *appSec
@@ -307,7 +325,6 @@ func Decode(r io.Reader) (*Exif, error) {
 		}
 		tif, err = tiff.Decode(er)
 	}
-
 	if err != nil {
 		return nil, decodeError{cause: err}
 	}
@@ -694,7 +711,6 @@ func (app *appSec) exifReader() (*bytes.Reader, error) {
 	if len(app.data) < 6 {
 		return nil, errors.New("exif: failed to find exif intro marker")
 	}
-
 	// read/check for exif special mark
 	exif := app.data[:6]
 	if !bytes.Equal(exif, append([]byte("Exif"), 0x00, 0x00)) {
@@ -715,4 +731,320 @@ func (x *Exif) Flash() (string, error) {
 		return "", err
 	}
 	return flashDescriptions[flashVal], nil
+}
+
+func newHEICReader(r io.Reader) (io.Reader, error) {
+	bufr := bufio.NewReader(io.LimitReader(r, 64*1024))
+	offr := newOffsetReader(bufr)
+	extentOffset, extentLength, extentFound, err := metaBox(offr)
+	if err != nil {
+		return nil, err
+	}
+	if !extentFound {
+		return nil, errors.New("exif: could not find extent in heic file")
+	}
+	exifReader, err := offr.OffsetReader(extentOffset + 10)
+	if err != nil {
+		return nil, err
+	}
+	return io.LimitReader(exifReader, int64(extentLength)), nil
+}
+
+func metaBox(r io.Reader) (extentOffset, extentLength int, extentFound bool, err error) {
+	var exifItemID uint16
+	var exifItemFound bool
+	for {
+		var b *box
+		b, err = readBox(r)
+		if err == io.EOF {
+			err = nil
+			return
+		}
+		if err != nil || b.size <= 0 {
+			return
+		}
+		switch b.name {
+		case "meta":
+			// discard 4 bytes fullbox header
+			if _, err = discard(b, 4); err != nil {
+				return
+			}
+			return metaBox(b)
+		case "iinf":
+			exifItemID, exifItemFound, err = parseIINF(b)
+			if err != nil {
+				return
+			}
+			if !exifItemFound {
+				err = errors.New("exif: no exif item in iinf box")
+				return
+			}
+		case "iloc":
+			if !exifItemFound {
+				err = errors.New("exif: no exif item in iinf box")
+				return
+			}
+			return parseILOC(b, exifItemID)
+		case "mdat":
+			return
+		default:
+			_, err = discard(r, b.size)
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+func parseIINF(b *box) (exifItemID uint16, exifItemFound bool, err error) {
+	// discard 4 bytes fullbox header
+	if _, err = discard(b, 4); err != nil {
+		return
+	}
+	itemCountBuf := make([]byte, 2)
+	if _, err = io.ReadFull(b, itemCountBuf); err != nil {
+		return
+	}
+	itemCount := int(binary.BigEndian.Uint16(itemCountBuf))
+	for i := 0; i < itemCount; i++ {
+		var infe *box
+		var infeBuf []byte
+		infe, err = readFullBox(b)
+		if err != nil {
+			return
+		}
+		if infe.name != "infe" || infe.size < 4 {
+			err = errors.New("exif: bad iinf box")
+			return
+		}
+		infeBuf, err = infe.readFull()
+		if err != nil {
+			return
+		}
+		if bytes.Contains(infeBuf, []byte{'E', 'x', 'i', 'f'}) {
+			exifItemID = binary.BigEndian.Uint16(infeBuf)
+			exifItemFound = true
+			break
+		}
+	}
+	return
+}
+
+func parseILOC(b *box, exifItemID uint16) (extentOffset, extentLength int, extentFound bool, err error) {
+	var extentOffsetV interface{}
+	var extentLengthV interface{}
+
+	fullHeaderBuf := make([]byte, 4)
+	if _, err = io.ReadFull(b, fullHeaderBuf); err != nil {
+		return
+	}
+	version := fullHeaderBuf[0]
+
+	infosBuf := make([]byte, 4)
+	if _, err = io.ReadFull(b, infosBuf); err != nil {
+		return
+	}
+	infos := binary.BigEndian.Uint32(infosBuf)
+	offsetSize := (infos & 0xF0000000) >> 28
+	lengthSize := (infos & 0x0F000000) >> 24
+	baseOffsetSize := (infos & 0x00F00000) >> 20
+	indexSize := (infos & 0x000F0000) >> 16
+	itemCount := (infos & 0x0000FFFF)
+
+	if offsetSize == 0 || lengthSize == 0 {
+		err = errors.New("exif: bad iloc box offset/length values")
+		return
+	}
+
+	var itemHeaderSize uint32
+	if version == 1 {
+		itemHeaderSize = 4 + 2 + baseOffsetSize + 2
+	} else {
+		itemHeaderSize = 4 + baseOffsetSize + 2
+	}
+
+	var extentSize uint32
+	if version == 1 {
+		extentSize = (offsetSize + lengthSize + indexSize)
+	} else {
+		extentSize = (offsetSize + lengthSize)
+	}
+
+	itemHeaderBuf := make([]byte, itemHeaderSize)
+	for i := 0; i < int(itemCount); i++ {
+		if _, err = io.ReadFull(b, itemHeaderBuf); err != nil {
+			return
+		}
+
+		itemID := binary.BigEndian.Uint16(itemHeaderBuf)
+		extentCount := int(binary.BigEndian.Uint16(itemHeaderBuf[itemHeaderSize-2:]))
+
+		if itemID != exifItemID {
+			if _, err = discard(b, int(extentSize)*extentCount); err != nil {
+				return
+			}
+		} else {
+			for j := 0; j < extentCount; j++ {
+				if itemID == exifItemID {
+					if version == 1 && indexSize > 0 {
+						if _, err = discard(b, int(indexSize)); err != nil {
+							return
+						}
+					}
+					switch offsetSize {
+					case 4:
+						var v uint32
+						err = binary.Read(b, binary.BigEndian, &v)
+						extentOffsetV = v
+					case 8:
+						var v uint64
+						err = binary.Read(b, binary.BigEndian, &v)
+						extentOffsetV = v
+					}
+					if err != nil {
+						return
+					}
+					switch lengthSize {
+					case 4:
+						var v uint32
+						err = binary.Read(b, binary.BigEndian, &v)
+						extentLengthV = v
+					case 8:
+						var v uint64
+						err = binary.Read(b, binary.BigEndian, &v)
+						extentLengthV = v
+					}
+					if err != nil {
+						return
+					}
+					extentFound = true
+					switch v := extentOffsetV.(type) {
+					case uint32:
+						extentOffset = int(v)
+					case uint64:
+						extentOffset = int(v)
+					}
+					switch v := extentLengthV.(type) {
+					case uint32:
+						extentLength = int(v)
+					case uint64:
+						extentLength = int(v)
+					}
+					return
+				}
+			}
+		}
+	}
+	return
+}
+
+type discarder interface {
+	Discard(n int) (int, error)
+}
+
+func discard(r io.Reader, n int) (int, error) {
+	switch v := r.(type) {
+	case discarder:
+		return v.Discard(n)
+	default:
+		return slowDiscard(r, n)
+	}
+}
+
+func slowDiscard(r io.Reader, n int) (int, error) {
+	buf := make([]byte, n)
+	return io.ReadFull(r, buf)
+}
+
+type offsetReader struct {
+	io.Reader
+	b *bytes.Buffer
+}
+
+func newOffsetReader(r io.Reader) *offsetReader {
+	return &offsetReader{
+		Reader: r,
+		b:      new(bytes.Buffer),
+	}
+}
+
+func (r *offsetReader) Read(p []byte) (n int, err error) {
+	n, err = r.Reader.Read(p)
+	if n > 0 {
+		r.b.Write(p[:n])
+	}
+	return
+}
+
+func (r *offsetReader) OffsetReader(offset int) (io.Reader, error) {
+	diff := offset - r.b.Len()
+	if diff < 0 {
+		b := r.b.Bytes()[offset:]
+		return io.MultiReader(bytes.NewReader(b), r.Reader), nil
+	}
+	if diff > 0 {
+		if _, err := discard(r.Reader, diff); err != nil {
+			return nil, err
+		}
+	}
+	return r.Reader, nil
+}
+
+type box struct {
+	io.Reader
+	size  int
+	left  int
+	name  string
+	vers  byte
+	flags [3]byte
+}
+
+func (b *box) readFull() ([]byte, error) {
+	buf := make([]byte, b.size)
+	if _, err := io.ReadFull(b, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
+func (b *box) Read(p []byte) (n int, err error) {
+	if b.left <= 0 {
+		return 0, io.EOF
+	}
+	if len(p) > b.left {
+		p = p[0:b.left]
+	}
+	n, err = b.Reader.Read(p)
+	b.left -= n
+	return
+}
+
+func readBox(r io.Reader) (b *box, err error) {
+	b = new(box)
+	header := make([]byte, 8)
+	_, err = io.ReadFull(r, header)
+	if err != nil {
+		return
+	}
+	b.size = int(binary.BigEndian.Uint32(header[0:4])) - len(header)
+	b.left = b.size
+	b.name = string(header[4:8])
+	b.Reader = r
+	return
+}
+
+func readFullBox(r io.Reader) (b *box, err error) {
+	b = new(box)
+	header := make([]byte, 12)
+	_, err = io.ReadFull(r, header)
+	if err != nil {
+		return
+	}
+	b.size = int(binary.BigEndian.Uint32(header[0:4])) - len(header)
+	b.left = b.size
+	b.name = string(header[4:8])
+	b.vers = header[8]
+	b.flags = [3]byte{header[9], header[10], header[11]}
+	b.Reader = r
+	return
 }
