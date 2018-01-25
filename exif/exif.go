@@ -777,6 +777,7 @@ func metaBox(r io.Reader) (extentOffset, extentLength int, extentFound bool, err
 			}
 			if !exifItemFound {
 				err = errors.New("exif: no exif item in iinf box")
+				return
 			}
 		case "iloc":
 			if !exifItemFound {
