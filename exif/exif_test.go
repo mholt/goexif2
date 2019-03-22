@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cozy/goexif2/tiff"
 )
@@ -199,6 +201,67 @@ func TestZeroLengthTagError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exif: decode failed (tiff: recursive IFD)") {
 		t.Fatal("wrong error:", err.Error())
+	}
+}
+
+// Ensure DateTime function is working
+func TestDateTime(t *testing.T) {
+	name := "sample1.jpg"
+	expTime := time.Date(2003, 11, 23, 18, 07, 37, 0, time.Local)
+	f, err := os.Open(name)
+	if err != nil {
+		t.Fatalf("%v\n", err)
+	}
+	defer f.Close()
+
+	x, err := Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dt, err := x.DateTime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dt.Equal(expTime) {
+		t.Fatalf("Expected time not equal to time in file: %s != %s", expTime, dt)
+	}
+}
+
+func downloadRAW(link, destFile string) error {
+	_, err := os.Stat(destFile)
+	if os.IsNotExist(err) {
+		resp, err := http.Get(link)
+		if err != nil {
+			return fmt.Errorf("Failed to download image %s: %s", link, err)
+		} else {
+			defer resp.Body.Close()
+			fd, err := os.Create(destFile)
+			if err != nil {
+				return fmt.Errorf("Failed to download image %s: %s", link, err)
+			} else {
+				io.Copy(fd, resp.Body)
+			}
+		}
+		fmt.Println("Downloaded", link, "to", destFile)
+	}
+	return nil
+}
+
+func BenchmarkDecode(b *testing.B) {
+	testFile := "test.jpg"
+	downloadRAW("http://web.canon.jp/imaging/eosd/samples/eos5ds/downloads/02.jpg", testFile)
+	b.ResetTimer()
+
+	for n := 0; n < b.N; n++ {
+		fd, err := os.Open(testFile)
+		if err != nil {
+			b.Errorf("Failed to open test file %s", err.Error())
+		}
+		_, err = Decode(fd)
+		if err != nil {
+			b.Errorf("Failed to decode test file %s", err.Error())
+		}
+		fd.Close()
 	}
 }
 

@@ -422,11 +422,12 @@ func (x *Exif) DateTime() (time.Time, error) {
 			return dt, err
 		}
 	}
-	if tag.Format() != tiff.StringVal {
-		return dt, errors.New("DateTime[Original] not in string format")
+	tagVal, err := tag.StringVal()
+	if err != nil {
+		return dt, err
 	}
 	exifTimeLayout := "2006:01:02 15:04:05"
-	dateStr := strings.TrimRight(string(tag.Val), "\x00")
+	dateStr := strings.TrimRight(tagVal, "\x00")
 	// TODO(bradfitz,mpl): look for timezone offset, GPS time, etc.
 	timeZone := time.Local
 	if tz, _ := x.TimeZone(); tz != nil {
