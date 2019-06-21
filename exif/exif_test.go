@@ -181,7 +181,7 @@ func TestHugeTagError(t *testing.T) {
 	if err == nil {
 		t.Fatal("no error on bad exif data")
 	}
-	if !strings.Contains(err.Error(), "short read") {
+	if !strings.Contains(err.Error(), "tag length too large") {
 		t.Fatal("wrong error:", err.Error())
 	}
 }

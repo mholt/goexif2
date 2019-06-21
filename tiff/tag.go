@@ -113,6 +113,9 @@ type Tag struct {
 	format    Format
 }
 
+// TagLengthCutoff limits tag size to avoid trying to read corrupted lengths and parsing potentially gigabytes of exif
+var TagLengthCutoff uint32 = 2 * 1024 * 1024
+
 // DecodeTag parses a tiff-encoded IFD tag from r and returns a Tag object. The
 // first read from r should be the first byte of the tag. ReadAt offsets should
 // generally be relative to the beginning of the tiff structure (not relative
@@ -153,6 +156,11 @@ func DecodeTag(r ReadAtReader, order binary.ByteOrder) (*Tag, error) {
 	}
 
 	valLen := size * t.Count
+	// avoid trying to read large (corrupted) lengths and parsing potentially gigabytes of exif
+	if TagLengthCutoff > 0 && valLen > TagLengthCutoff {
+		return t, fmt.Errorf("tiff: tag length too large: %v", valLen)
+	}
+
 	if valLen > 4 {
 		binary.Read(r, order, &t.ValOffset)
 
