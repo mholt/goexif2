@@ -141,7 +141,8 @@ func DecodeTag(r ReadAtReader, order binary.ByteOrder) (*Tag, error) {
 
 	// There seems to be a relatively common corrupt tag which has a Count of
 	// MaxUint32. This is probably not a valid value, so return early.
-	if t.Count == 1<<32-1 {
+	// Also check for invalid count values.
+	if t.Count == 1<<32-1 || t.Count >= 1<<31-1 {
 		return t, errors.New("invalid Count offset in tag")
 	}
 
