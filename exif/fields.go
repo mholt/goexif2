@@ -89,6 +89,7 @@ const (
 	SubjectDistanceRange       FieldName = "SubjectDistanceRange"
 	LensMake                   FieldName = "LensMake"
 	LensModel                  FieldName = "LensModel"
+	TimeZoneOffset             FieldName = "TimeZoneOffset"
 
 	// Embedded images fields
 	JpegFromRawFormat       FieldName = "JpegFromRawFormat"
@@ -200,6 +201,7 @@ var exifFields = map[uint16]FieldName{
 	0x9286: UserComment,
 
 	0xA004: RelatedSoundFile,
+	0x882A: TimeZoneOffset,
 	0x9003: DateTimeOriginal,
 	0x9004: DateTimeDigitized,
 	0x9290: SubSecTime,
