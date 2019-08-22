@@ -435,20 +435,32 @@ func (x *Exif) DateTime() (time.Time, error) {
 	return time.ParseInLocation(exifTimeLayout, dateStr, timeZone)
 }
 
+// Check various EXIF fields for a timezone offset
 func (x *Exif) TimeZone() (*time.Location, error) {
-	// TODO: parse more timezone fields (e.g. Nikon WorldTime).
+	// TimeZoneOffset
+	timeOffset, err := x.Get(TimeZoneOffset)
+	if err == nil {
+		offset, err := timeOffset.Int(0)
+		if err != nil {
+			return nil, err
+		}
+		label := fmt.Sprintf("UTC%+d", offset)
+		return time.FixedZone(label, offset*60*60), nil
+	}
+	// Other common model fields
 	timeInfo, err := x.Get("Canon.TimeInfo")
-	if err != nil {
-		return nil, err
+	if err == nil {
+		if timeInfo.Count < 2 {
+			return nil, errors.New("Canon.TimeInfo does not contain timezone")
+		}
+		offsetMinutes, err := timeInfo.Int(1)
+		if err != nil {
+			return nil, err
+		}
+		return time.FixedZone("", offsetMinutes*60), nil
 	}
-	if timeInfo.Count < 2 {
-		return nil, errors.New("Canon.TimeInfo does not contain timezone")
-	}
-	offsetMinutes, err := timeInfo.Int(1)
-	if err != nil {
-		return nil, err
-	}
-	return time.FixedZone("", offsetMinutes*60), nil
+	// TODO: parse more timezone fields (e.g. Nikon WorldTime).
+	return nil, errors.New("No time zone infomation found")
 }
 
 func ratFloat(num, dem int64) float64 {
