@@ -341,7 +341,7 @@ func (t *Tag) typeErr(to Format) error {
 }
 
 // Rat returns the tag's i'th value as a rational number. It returns a nil and
-// an error if this tag's Format is not RatVal or has a zero denominator.  It 
+// an error if this tag's Format is not RatVal or has a zero denominator.  It
 // panics i is out of range.
 func (t *Tag) Rat(i int) (*big.Rat, error) {
 	n, d, err := t.Rat2(i)
@@ -369,6 +369,9 @@ func (t *Tag) Rat2(i int) (num, den int64, err error) {
 func (t *Tag) Int64(i int) (int64, error) {
 	if t.format != IntVal {
 		return 0, t.typeErr(IntVal)
+	}
+	if i >= len(t.intVals) {
+		return 0, errors.New("index out of range in intVals")
 	}
 	return t.intVals[i], nil
 }
