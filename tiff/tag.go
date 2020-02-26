@@ -362,6 +362,9 @@ func (t *Tag) Rat2(i int) (num, den int64, err error) {
 	if t.format != RatVal {
 		return 0, 0, t.typeErr(RatVal)
 	}
+	if i >= len(t.ratVals) || len(t.ratVals[i]) < 2 {
+		return 0, 0, errors.New("index out of range in ratVals")
+	}
 	return t.ratVals[i][0], t.ratVals[i][1], nil
 }
 
@@ -383,6 +386,9 @@ func (t *Tag) Int(i int) (int, error) {
 	if t.format != IntVal {
 		return 0, t.typeErr(IntVal)
 	}
+	if i >= len(t.intVals) {
+		return 0, errors.New("index out of range in intVals")
+	}
 	return int(t.intVals[i]), nil
 }
 
@@ -391,6 +397,9 @@ func (t *Tag) Int(i int) (int, error) {
 func (t *Tag) Float(i int) (float64, error) {
 	if t.format != FloatVal {
 		return 0, t.typeErr(FloatVal)
+	}
+	if i >= len(t.floatVals) {
+		return 0, errors.New("index out of range in floatVals")
 	}
 	return t.floatVals[i], nil
 }
