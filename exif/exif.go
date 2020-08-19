@@ -445,6 +445,12 @@ func (x *Exif) TimeZone() (*time.Location, error) {
 		if err != nil {
 			return nil, err
 		}
+		if offset > 24 {
+			offset -= 65536
+		}
+		if offset < -24 {
+			return nil, errors.New("Invalid timezone offset")
+		}
 		label := fmt.Sprintf("UTC%+d", offset)
 		return time.FixedZone(label, offset*60*60), nil
 	}
