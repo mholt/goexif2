@@ -47,7 +47,7 @@ func main() {
 		}
 
 		fmt.Printf("\n---- Image '%v' ----\n", name)
-		x.Walk(Walker{})
+		_ = x.Walk(Walker{})
 		if x.Comment != "" {
 			fmt.Printf("    %v: %v\n", "Comment", x.Comment)
 		}

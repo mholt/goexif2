@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 )
 
 // ReadAtReader is used when decoding Tiff tags and directories
@@ -31,7 +30,7 @@ type Tiff struct {
 // should be the first byte of the tiff-encoded data and not necessarily the
 // first byte of an os.File object.
 func Decode(r io.Reader) (*Tiff, error) {
-	data, err := ioutil.ReadAll(r)
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, errors.New("tiff: could not read data")
 	}

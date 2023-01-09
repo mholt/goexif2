@@ -163,7 +163,9 @@ func DecodeTag(r ReadAtReader, order binary.ByteOrder) (*Tag, error) {
 	}
 
 	if valLen > 4 {
-		binary.Read(r, order, &t.ValOffset)
+		if err := binary.Read(r, order, &t.ValOffset); err != nil {
+			return nil, errors.New("tiff: tag value offset read failed: " + err.Error())
+		}
 
 		// Use a bytes.Buffer so we don't allocate a huge slice if the tag
 		// is corrupt.
@@ -176,7 +178,6 @@ func DecodeTag(r ReadAtReader, order binary.ByteOrder) (*Tag, error) {
 			return t, ErrShortReadTagValue
 		}
 		t.Val = buff.Bytes()
-
 	} else {
 		val := make([]byte, valLen)
 		if _, err = io.ReadFull(r, val); err != nil {
@@ -421,9 +422,9 @@ func (t *Tag) String() string {
 	}
 
 	if t.Count == 1 {
-		return strings.Trim(fmt.Sprintf("%s", data), "[]")
+		return strings.Trim(string(data), "[]")
 	}
-	return fmt.Sprintf("%s", data)
+	return string(data)
 }
 
 func (t *Tag) MarshalJSON() ([]byte, error) {

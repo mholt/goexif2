@@ -208,7 +208,7 @@ func TestDecode(t *testing.T) {
 
 func TestDecodeTag_blob(t *testing.T) {
 	buf := bytes.NewReader(data())
-	buf.Seek(10, 1)
+	_, _ = buf.Seek(10, 1)
 	tg, err := DecodeTag(buf, binary.LittleEndian)
 	if err != nil {
 		t.Fatalf("tag decode failed: %v", err)

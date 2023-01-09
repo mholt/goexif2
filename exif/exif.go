@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"strconv"
 	"strings"
@@ -300,7 +299,7 @@ func Decode(r io.Reader) (*Exif, error) {
 		if err != nil {
 			return nil, err
 		}
-		hbuf, err = ioutil.ReadAll(hr)
+		hbuf, err = io.ReadAll(hr)
 		if err != nil {
 			return nil, err
 		}
@@ -329,8 +328,11 @@ func Decode(r io.Reader) (*Exif, error) {
 		return nil, decodeError{cause: err}
 	}
 
-	er.Seek(0, 0)
-	raw, err := ioutil.ReadAll(er)
+	_, err = er.Seek(0, 0)
+	if err != nil {
+		return nil, decodeError{cause: err}
+	}
+	raw, err := io.ReadAll(er)
 	if err != nil {
 		return nil, decodeError{cause: err}
 	}
@@ -467,7 +469,7 @@ func (x *Exif) TimeZone() (*time.Location, error) {
 		return time.FixedZone("", offsetMinutes*60), nil
 	}
 	// TODO: parse more timezone fields (e.g. Nikon WorldTime).
-	return nil, errors.New("No time zone infomation found")
+	return nil, errors.New("No time zone information found")
 }
 
 func ratFloat(num, dem int64) float64 {
@@ -717,11 +719,6 @@ func newAppSec(marker byte, r io.Reader) (*appSec, error) {
 		app.data = append(app.data, s[:n]...)
 	}
 	return app, nil
-}
-
-// reader returns a reader on this appSec.
-func (app *appSec) reader() *bytes.Reader {
-	return bytes.NewReader(app.data)
 }
 
 // exifReader returns a reader on this appSec with the read cursor advanced to

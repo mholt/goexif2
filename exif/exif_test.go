@@ -52,7 +52,7 @@ func TestDecode(t *testing.T) {
 		}
 
 		t.Logf("checking pic %v", name)
-		x.Walk(&walker{name, t})
+		_ = x.Walk(&walker{name, t})
 		cnt++
 	}
 	if cnt != len(regressExpected) {
@@ -239,7 +239,7 @@ func downloadRAW(link, destFile string) error {
 			if err != nil {
 				return fmt.Errorf("Failed to download image %s: %s", link, err)
 			} else {
-				io.Copy(fd, resp.Body)
+				_, _ = io.Copy(fd, resp.Body)
 			}
 		}
 		fmt.Println("Downloaded", link, "to", destFile)
@@ -249,7 +249,7 @@ func downloadRAW(link, destFile string) error {
 
 func BenchmarkDecode(b *testing.B) {
 	testFile := "test.jpg"
-	downloadRAW("http://web.canon.jp/imaging/eosd/samples/eos5ds/downloads/02.jpg", testFile)
+	_ = downloadRAW("http://web.canon.jp/imaging/eosd/samples/eos5ds/downloads/02.jpg", testFile)
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
