@@ -442,6 +442,26 @@ func (x *Exif) DateTime() (time.Time, error) {
 func (x *Exif) TimeZone() (*time.Location, error) {
 	// TimeZoneOffset
 	timeOffset, err := x.Get(TimeZoneOffset)
+	if err != nil {
+		timeOffset, err = x.Get(OffsetTime)
+		if err != nil {
+			timeOffset, err = x.Get(OffsetTimeOriginal)
+		}
+		if err != nil {
+			timeOffset, err = x.Get(OffsetTimeDigitized)
+		}
+		if err == nil {
+			timeOffsetVal, err := timeOffset.StringVal()
+			if err != nil {
+				return nil, err
+			}
+			t, err := time.Parse("-07:00", timeOffsetVal)
+			if err != nil {
+				return nil, fmt.Errorf("Invalid timezone offset: %s", timeOffsetVal)
+			}
+			return t.Location(), nil
+		}
+	}
 	if err == nil {
 		offset, err := timeOffset.Int(0)
 		if err != nil {
